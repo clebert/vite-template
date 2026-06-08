@@ -30,14 +30,16 @@ if [ -z "$name" ]; then
   [ -n "$name" ] || name="$default_name"
 fi
 
-# Restrict to characters valid in both an npm package name and a URL path.
+# Must be a valid npm package name and URL path segment: lowercase only, and
+# not starting with '.', '_' or '-' (rejects '', '.', '..', '-rf', '_foo', …).
 case "$name" in
-  *[!A-Za-z0-9._-]*) die "name '$name' may only contain letters, digits, '.', '_' or '-'" ;;
+  "") die "project name is empty" ;;
+  [._-]*) die "name '$name' cannot start with '.', '_' or '-'" ;;
+  *[!a-z0-9._-]*) die "name '$name' may only contain lowercase letters, digits, '.', '_' or '-'" ;;
 esac
 
-# --- guard against clobbering an existing project ---------------------------
-[ -e package.json ] && die "package.json already exists here — refusing to overwrite"
-[ -e .git ] && die ".git already exists here — refusing to overwrite"
+# --- refuse to scaffold into a non-empty directory --------------------------
+[ -z "$(ls -A 2>/dev/null)" ] || die "current directory is not empty — run from an empty directory"
 
 # --- download the template --------------------------------------------------
 command -v curl > /dev/null 2>&1 || die "curl is required"
@@ -46,38 +48,46 @@ command -v tar  > /dev/null 2>&1 || die "tar is required"
 echo "Downloading $REPO ($BRANCH)…"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-curl -fsSL "https://codeload.github.com/$REPO/tar.gz/refs/heads/$BRANCH" | tar -xz -C "$tmp" \
-  || die "failed to download template"
+archive="$tmp/template.tgz"
+# Download and extract as two checked steps: POSIX sh has no pipefail, so a
+# piped `curl | tar` would hide curl's exit status behind tar's.
+curl -fsSL "https://codeload.github.com/$REPO/tar.gz/refs/heads/$BRANCH" -o "$archive" \
+  || die "failed to download template — is $REPO (branch $BRANCH) reachable?"
+tar -xzf "$archive" -C "$tmp" || die "failed to extract the downloaded template archive"
 src="$tmp/$(basename "$REPO")-$BRANCH"
 [ -d "$src" ] || die "unexpected archive layout"
 
 # Copy everything (incl. dotfiles), then drop files that are template-only.
 cp -R "$src/." .
-rm -f create.sh
+rm -f create.sh README.md
 
 # --- replace the placeholder name -------------------------------------------
 replace() { # <file> <sed-expression>
-  sed "$2" "$1" > "$1.tmp" && mv "$1.tmp" "$1"
+  sed "$2" "$1" > "$1.tmp" && mv "$1.tmp" "$1" || { rm -f "$1.tmp"; die "failed to rewrite $1"; }
 }
 
 replace vite.config.js "s|/vite-template/|/$name/|g"
 replace package.json   "s|\"name\": \"vite-template\"|\"name\": \"$name\"|"
-replace index.html     "s|<title>Vite Template</title>|<title>$name</title>|"
+replace index.html     "s|<title>vite-template</title>|<title>$name</title>|"
 printf '# %s\n' "$name" > README.md
 
 echo "Renamed template → $name"
 
-# --- git init + install -----------------------------------------------------
+# --- git init (on branch main, matching CI) + install -----------------------
 if command -v git > /dev/null 2>&1; then
   git init -q
-  echo "Initialized empty git repository (files left unstaged for review)."
+  # Force branch `main`: CI/Pages only trigger on `main`, but a fresh git
+  # install defaults to `master` unless init.defaultBranch is set. symbolic-ref
+  # works on every git version (no commits exist yet), unlike `init -b`.
+  git symbolic-ref HEAD refs/heads/main
+  echo "Initialized empty git repository on branch main (files left unstaged for review)."
 else
   echo "git not found — skipping git init." >&2
 fi
 
 if command -v npm > /dev/null 2>&1; then
   echo "Installing dependencies…"
-  npm install
+  npm install || die "dependencies failed to install — fix the error above, then run 'npm install' in this directory"
 else
   echo "npm not found — run 'npm install' yourself." >&2
 fi
