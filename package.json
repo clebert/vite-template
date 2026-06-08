@@ -1,0 +1,19 @@
+{
+  "dependencies": {
+    "@preact/signals": "^2.9.1",
+    "preact": "^10.29.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.5",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16"
+  },
+  "name": "vite-template",
+  "private": true,
+  "scripts": {
+    "build": "tsc && vite build",
+    "start": "vite"
+  },
+  "type": "module"
+}
