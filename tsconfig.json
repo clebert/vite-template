@@ -23,6 +23,7 @@
     "strict": true,
     "target": "esnext",
     "types": [
+      "node",
       "vite/client"
     ],
     "verbatimModuleSyntax": true
